@@ -466,8 +466,10 @@ export const fixturePort: ArchLabPort = {
     }
 
     const result = simulateFlow(scenarioId, components, connections);
-    if (!withProposal) state.lastRun = result;
-    notify();
+    if (!withProposal) {
+      state.lastRun = result;
+      notify();
+    }
     return result;
   },
 
@@ -614,3 +616,15 @@ export const fixtureControls: ArchLabControls = {
 
 /** The most recent agent- or human-triggered run, for the page to render. */
 export const lastRun = (): SimulationResult | null => state.lastRun;
+
+/**
+ * The working graph the canvas draws. UI-only — not on ArchLabPort, so the
+ * agent cannot reach it. Cloned so a render cannot mutate fixture state.
+ */
+export const liveGraph = (): {
+  components: FixtureComponent[];
+  connections: FixtureConnection[];
+} => ({
+  components: clone(state.components),
+  connections: clone(state.connections),
+});
