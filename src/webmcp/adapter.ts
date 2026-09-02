@@ -103,7 +103,17 @@ export function capOutput(s: string, limit = OUTPUT_LIMIT): string {
   return s.slice(0, Math.max(0, limit - suffix.length)) + suffix;
 }
 
-const FLOW_CONTROL = /\bbefore you call\b|\bcall .{0,20}first\b|\bthen call\b|\bafter calling\b/i;
+/**
+ * Flow control smuggled into a description. Chrome's best practices say to gate
+ * ordering through registration state instead, because a description that says
+ * "call X first" is an instruction the agent may or may not honour, whereas an
+ * unregistered tool simply is not there.
+ *
+ * The "use <other_tool> to ..." form is included because that is the shape this
+ * repo actually shipped by accident, in a *parameter* description.
+ */
+const FLOW_CONTROL =
+  /\bbefore you call\b|\bcall .{0,20}first\b|\bthen call\b|\bafter calling\b|\buse `?[a-z][a-z0-9]*_[a-z0-9_]+`? to\b|\bfirst (?:call|run|use)\b/i;
 const NAME_RE = /^[A-Za-z0-9_.-]{1,128}$/;
 
 /**
@@ -159,8 +169,16 @@ export function checkToolDef(def: ToolDef): string[] {
               v.push(`${n}.${key}: parameter name is ${key.length} chars, over ${NAME_LIMIT}`);
             }
             const d = (raw as { description?: unknown } | null)?.description;
-            if (typeof d === 'string' && d.length > PARAM_DESC_LIMIT) {
-              v.push(`${n}.${key}: description is ${d.length} chars, over ${PARAM_DESC_LIMIT}`);
+            if (typeof d === 'string') {
+              if (d.length > PARAM_DESC_LIMIT) {
+                v.push(`${n}.${key}: description is ${d.length} chars, over ${PARAM_DESC_LIMIT}`);
+              }
+              // Parameter descriptions are descriptions too. Checking only the
+              // tool description let "use tool X to see..." through, which is
+              // exactly the flow control this rule exists to forbid.
+              if (FLOW_CONTROL.test(d)) {
+                v.push(`${n}.${key}: description encodes flow control; gate order by registration instead`);
+              }
             }
           }
         }
@@ -331,10 +349,12 @@ export function listTools(): Promise<WebMCP.RegisteredTool[]> {
 /**
  * Manually invokes a registered tool, for the /debug route.
  *
- * The argument type is genuinely unsettled: Chrome's docs say to pass "input
- * arguments as a valid JSON string", while the spec IDL types the parameter as
- * `object inputObject`. Rather than bet on one, try the object form and fall
- * back to the JSON string.
+ * The argument type is a genuine documentation/spec conflict: Chrome's docs say
+ * to pass "input arguments as a valid JSON string", while the spec IDL types the
+ * parameter as `object inputObject`. Live testing against Chrome 150 settles it
+ * in Chrome's favour -- the object form throws -- so the string is tried first,
+ * and the object form is kept as the fallback for whichever engine ships the
+ * IDL as written.
  */
 export async function invokeTool(
   tool: WebMCP.RegisteredTool,
@@ -343,8 +363,8 @@ export async function invokeTool(
   const mc = context();
   if (!mc?.executeTool) throw new Error('executeTool is unavailable in this browser');
   try {
-    return { result: await mc.executeTool(tool, input), via: 'object' };
-  } catch {
     return { result: await mc.executeTool(tool, JSON.stringify(input)), via: 'json-string' };
+  } catch {
+    return { result: await mc.executeTool(tool, input), via: 'object' };
   }
 }

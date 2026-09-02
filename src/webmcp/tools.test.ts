@@ -15,7 +15,7 @@
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { controls, port } from '../contracts';
 import {
   capOutput,
@@ -29,6 +29,10 @@ import {
 import { globalTools, scopedTools } from './tools';
 
 const allTools = (): ToolDef[] => [...globalTools, ...scopedTools()];
+
+// Applying a proposal genuinely mutates the graph now, so every test starts
+// from the seed rather than inheriting whatever the previous one approved.
+beforeEach(() => controls.resetToSeed());
 
 /**
  * Strips comments and string/template literals so that a rule written down in a
@@ -44,11 +48,15 @@ function codeOnly(src: string): string {
 }
 
 /**
- * Scans every non-test source file under src/ for a pattern, matching against
- * code only.
+ * Scans non-test source files for a pattern, matching against code only.
+ * `subdir` narrows the walk to one directory under src/.
  */
-function scanSource(pattern: RegExp, include: (basename: string) => boolean = () => true): string[] {
-  const root = join(import.meta.dirname, '..');
+function scanSource(
+  pattern: RegExp,
+  include: (basename: string) => boolean = () => true,
+  subdir = '',
+): string[] {
+  const root = join(import.meta.dirname, '..', subdir);
   const offenders: string[] = [];
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir)) {
@@ -156,6 +164,18 @@ describe('budget enforcement fails loudly when broken', () => {
     expect(checkToolDef({ ...base, inputSchema: circular }).join(' ')).toMatch(/not JSON-serialisable/);
   });
 
+  it('rejects flow control smuggled into a PARAMETER description', () => {
+    const v = checkToolDef({
+      ...base,
+      inputSchema: {
+        type: 'object',
+        properties: { x: { type: 'string', description: 'Use list_other_things to see the options.' } },
+        required: [],
+      },
+    });
+    expect(v.join(' ')).toMatch(/flow control/);
+  });
+
   it('rejects flow control smuggled into a description', () => {
     const v = checkToolDef({ ...base, description: 'Gets a thing. Before you call this, call the other one.' });
     expect(v.join(' ')).toMatch(/flow control/);
@@ -173,15 +193,47 @@ describe('output budget', () => {
     expect(capOutput('short')).toBe('short');
   });
 
-  it('no tool can emit an over-budget payload, even with everything selected', () => {
+  it('no tool emits an over-budget payload, even at the worst input, BEFORE capping', () => {
+    // Asserting on capOutput(out).length would be tautological -- it is <= the
+    // limit by construction. The point is that the tools must produce output
+    // that already fits, because capOutput truncates from the END, and the end
+    // is where the assumptions live. A silently truncated reply drops the
+    // "these numbers are synthetic" disclaimer from precisely the most detailed
+    // answers, which are the ones most likely to be believed.
     controls.setSelection(controls.componentIds());
-    for (const tool of allTools()) {
-      const input =
-        tool.name === 'simulate_selected_flow' ? { scenarioId: 'flash_sale_cache_outage', focus: 'latency' } : {};
-      if (tool.name === 'propose_architecture_patch') continue;
-      const out = tool.execute(input, { signal: new AbortController().signal });
-      expect(typeof out === 'string' ? capOutput(out).length : 0, tool.name).toBeLessThanOrEqual(OUTPUT_LIMIT);
+    const ctx = { signal: new AbortController().signal };
+
+    const worstCases: [string, Record<string, unknown>][] = [
+      ['get_architecture_summary', {}],
+      ['get_architecture_summary', { detail: 'standard' }],
+      ['list_simulation_scenarios', {}],
+      ['get_component_catalog', {}],
+      ['get_selected_arch_context', {}],
+      ['get_selected_arch_context', { include: ['components', 'connections', 'assumptions'] }],
+      ['simulate_selected_flow', { scenarioId: 'flash_sale_cache_outage' }],
+      ['simulate_selected_flow', { scenarioId: 'flash_sale_cache_outage', focus: 'latency' }],
+      ['simulate_selected_flow', { scenarioId: 'flash_sale_10x', focus: 'queue_lag' }],
+      ['simulate_selected_flow', { scenarioId: 'baseline', focus: 'throughput' }],
+    ];
+
+    const tools = allTools();
+    for (const [name, input] of worstCases) {
+      const tool = tools.find((t) => t.name === name)!;
+      const out = String(tool.execute(input, ctx));
+      expect(out.length, `${name} ${JSON.stringify(input)} produced ${out.length} chars`).toBeLessThanOrEqual(
+        OUTPUT_LIMIT,
+      );
+      expect(out, `${name} must never be truncated by capOutput`).not.toContain('[truncated;');
     }
+  });
+
+  it('keeps the assumptions even when detail has to be dropped to fit', () => {
+    controls.setSelection(controls.componentIds());
+    const tool = allTools().find((t) => t.name === 'get_selected_arch_context')!;
+    const out = String(tool.execute({}, { signal: new AbortController().signal }));
+    expect(out).toContain('Assumptions:');
+    expect(out).toContain('synthetic and directional');
+    expect(out).toContain('UNTRUSTED');
   });
 });
 
@@ -199,6 +251,50 @@ describe('safety', () => {
     for (const key of Object.keys(port)) {
       expect(/^(apply|set|delete|remove|clear|reset|update)/.test(key), key).toBe(false);
     }
+  });
+
+  it('the tool layer never imports the human-only controls', () => {
+    // This is the load-bearing one. `controls` is exported from the same barrel
+    // the tool layer already imports `port` from, so the isolation is exactly
+    // one import statement away from breaking -- and the naming checks above
+    // would not notice. `controls.applyProposal` is the only thing in the
+    // codebase that mutates the graph.
+    const offenders = scanSource(/\bcontrols\b/, () => true, 'webmcp');
+    expect(offenders).toEqual([]);
+  });
+
+  it('applying a proposal is the only thing that changes the graph', () => {
+    controls.setSelection(['checkout', 'redis', 'product_db']);
+    const before = port.simulate({ scenarioId: 'flash_sale_cache_outage' });
+
+    // Every tool the agent can reach, run against the worst scenario.
+    const ctx = { signal: new AbortController().signal };
+    for (const tool of allTools()) {
+      const input =
+        tool.name === 'simulate_selected_flow'
+          ? { scenarioId: 'flash_sale_cache_outage' }
+          : tool.name === 'propose_architecture_patch'
+            ? {
+                baseRevision: port.getRevision(),
+                title: 'Raise Product DB capacity',
+                rationale: 'It saturates during a cache outage.',
+                changes: [{ op: 'update_component', targetId: 'product_db', payload: { capacityRps: 2000 } }],
+              }
+            : {};
+      tool.execute(input, ctx);
+    }
+
+    const after = port.simulate({ scenarioId: 'flash_sale_cache_outage' });
+    expect(after.summary, 'no tool may change simulated behaviour').toEqual(before.summary);
+    expect(after.graphRevision).toBe(before.graphRevision);
+
+    // Now the human applies it, and the numbers must actually move -- otherwise
+    // the whole approve-a-mitigation story is theatre.
+    const draft = controls.listProposals().find((p) => p.status === 'draft')!;
+    expect(controls.applyProposal(draft.id)).toBe(true);
+    const applied = port.simulate({ scenarioId: 'flash_sale_cache_outage' });
+    expect(applied.graphRevision).toBe(before.graphRevision + 1);
+    expect(applied.summary.errorRate).toBeLessThan(before.summary.errorRate);
   });
 
   it('only the adapter touches document.modelContext', () => {

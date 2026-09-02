@@ -11,7 +11,7 @@
  * calling document, so a passive observer page would show an empty list.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { controls, IS_FIXTURE, port } from '../contracts';
 import {
   DESC_LIMIT,
@@ -136,7 +136,7 @@ export default function DebugPage() {
   useWebMCPLifecycle();
 
   const [tools, setTools] = useState<RegisteredTool[]>([]);
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
   const activity = useToolActivity(30);
 
   const refresh = useCallback(() => {
@@ -148,12 +148,15 @@ export default function DebugPage() {
     return onToolChange(refresh);
   }, [refresh]);
 
-  // Re-render when the fixture's revision or selection changes.
+  // Re-render when the revision, selection or proposal list changes. `tick` is
+  // only a render trigger; the values below are read fresh on every render
+  // rather than memoised, because memoising on a counter buys nothing and reads
+  // as a mistake.
   useEffect(() => port.subscribe(() => setTick((t) => t + 1)), []);
 
   const supported = isSupported();
-  const selection = useMemo(() => port.getSelection(), [tick]);
-  const proposals = useMemo(() => [...controls.listProposals()], [tick]);
+  const selection = port.getSelection();
+  const proposals = [...controls.listProposals()];
 
   return (
     <div className="page">

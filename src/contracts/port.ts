@@ -6,9 +6,16 @@
  *   - The domain/simulation lane implements it and never edits this file.
  *
  * Everything the agent is ever allowed to see passes through this interface, which is
- * what makes the safety story auditable in one place: there is no mutation method here,
- * so no registered tool can mutate application state. `draftProposal` validates and
- * drafts; only human UI action applies.
+ * what makes the safety story auditable in one place: **no method here mutates the
+ * architecture graph**. `draftProposal` validates and drafts; only human action, through
+ * `ArchLabControls` (which the tool layer must never import), applies a patch.
+ *
+ * Be precise about what that does and does not claim. Two methods here do write
+ * *presentation* state: `simulate` records the run so the page can show it, and
+ * `draftProposal` appends to the proposal queue. Both are deliberate -- an agent's work
+ * is supposed to be visible -- and the spec sanctions marking `simulate` `readOnlyHint`
+ * on the grounds that it is read-only *with respect to architecture state*. Neither can
+ * change a component, a connection, or the revision.
  */
 
 /* ------------------------------------------------------------------ vocabulary */
@@ -92,6 +99,13 @@ export interface ComponentMetric {
   utilization: number;
   p95LatencyMs: number;
   errorRate: number;
+  /**
+   * Queue backlog drain time, for components whose overload behaviour is to
+   * enqueue rather than fail. Absent on everything else -- an asynchronous
+   * component that falls behind produces lag, not errors, and conflating the two
+   * is the misreading the whole cache-outage lesson exists to prevent.
+   */
+  lagSeconds?: number;
 }
 
 export interface Bottleneck {
@@ -170,6 +184,14 @@ export type ProposalOutcome =
       message: string;
     };
 
+/** What the component catalog exposes, so the agent proposes only known primitives. */
+export interface CatalogEntry {
+  kind: string;
+  does: string;
+  /** Which capacity fields are meaningful for this kind. */
+  fields: string[];
+}
+
 /* -------------------------------------------------------------------- the port */
 
 export interface ArchLabPort {
@@ -181,14 +203,71 @@ export interface ArchLabPort {
   /** Drives the `scenarioId` enum in the simulate tool's JSON Schema. */
   listScenarios(): ScenarioMeta[];
 
+  /**
+   * The component kinds and patch operations the simulator actually understands.
+   * Exposing this is what stops an agent proposing primitives that do not exist.
+   */
+  listCatalog(): CatalogEntry[];
+
   /** `null` means nothing is selected, which unregisters every scoped tool. */
   getSelection(): SelectionContext | null;
 
-  simulate(input: { flowId?: string; scenarioId: string; focus?: Focus }): SimulationResult;
+  /**
+   * Runs a scenario. Read-only with respect to the architecture graph.
+   *
+   * `withProposal` simulates the graph *as if* that draft proposal had been
+   * applied, without applying it — which is how the approval drawer shows a
+   * before/after headline without anything being committed first.
+   */
+  simulate(input: {
+    flowId?: string;
+    scenarioId: string;
+    focus?: Focus;
+    withProposal?: string;
+  }): SimulationResult;
 
-  /** Validates and drafts. MUST NOT mutate graph state under any circumstances. */
+  /** Validates and drafts. MUST NOT mutate the architecture graph, ever. */
   draftProposal(patch: PatchDraft): ProposalOutcome;
 
-  /** Fires on any change to revision or selection. Returns an unsubscribe fn. */
+  /** Fires on any change to revision, selection, or run history. */
   subscribe(cb: () => void): () => void;
+}
+
+/* ---------------------------------------------------------------- the controls */
+
+export interface ProposalView {
+  id: string;
+  baseRevision: number;
+  title: string;
+  rationale: string;
+  changes: PatchChange[];
+  expectedTradeoffs: string[];
+  status: 'draft' | 'applied' | 'rejected';
+}
+
+/**
+ * The human half of the approval boundary.
+ *
+ * NOTHING under `src/webmcp/` may import this — a test enforces it. It is the
+ * only surface that mutates the architecture graph, and keeping it out of the
+ * tool layer's reach by construction is what makes "the agent cannot change
+ * anything" a structural fact rather than a promise.
+ */
+export interface ArchLabControls {
+  setSelection(componentIds: string[]): void;
+  clearSelection(): void;
+  listProposals(): readonly ProposalView[];
+  /** The ONLY path that mutates the graph and increments the revision. */
+  applyProposal(id: string): boolean;
+  rejectProposal(id: string): boolean;
+  /**
+   * Restores the seed graph, clears proposals and selection, and resets the
+   * revision. Human-only, like everything else here. The demo needs it to
+   * record a second take, and tests need it because applying a proposal now
+   * genuinely mutates the graph.
+   */
+  resetToSeed(): void;
+  componentIds(): string[];
+  /** True while running on fixture data rather than the real domain layer. */
+  isFixture: boolean;
 }

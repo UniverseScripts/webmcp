@@ -28,5 +28,7 @@
     "vite": "^8.2.2",
     "vitest": "^3.2.4",
     "webmcp-types": "^0.1.5"
-  }
+  },
+  "license": "MIT",
+  "description": "A WebMCP-native architecture studio where a person and an agent co-design, simulate and review a system model."
 }

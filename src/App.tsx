@@ -1,15 +1,20 @@
 /**
  * Application shell.
  *
- * LANE BOUNDARY: the architecture canvas, inspector, and proposal drawer belong
- * to the UI lane and land in `src/components/`. What lives here is only what the
- * WebMCP lane owns and the team plan assigns to it -- the registration lifecycle,
- * the feature-detection fallback, the shared-context readout, and the activity
- * log -- plus a placeholder so the deployed URL is never a blank page.
+ * LANE BOUNDARY: the architecture canvas, inspector, and richly designed
+ * proposal drawer belong to the UI lane and land in `src/components/`. What
+ * lives here is what the WebMCP lane owns and the team plan assigns to it --
+ * the registration lifecycle, the feature-detection fallback, the shared-context
+ * readout, the activity log, and the human approval control.
+ *
+ * The manual scenario buttons are not decoration. The fallback promise is that
+ * everything stays usable without WebMCP, and that promise is only true if a
+ * human can run a scenario without an agent. They are also what makes an
+ * agent-triggered run visible on screen rather than only in a chat window.
  */
 
 import { useEffect, useState } from 'react';
-import { controls, IS_FIXTURE, port } from './contracts';
+import { controls, IS_FIXTURE, lastRun, port } from './contracts';
 import { isSupported } from './webmcp/adapter';
 import { useToolActivity, useWebMCPLifecycle } from './webmcp/lifecycle';
 import './ui.css';
@@ -27,6 +32,10 @@ export default function App() {
   const supported = isSupported();
   const selection = port.getSelection();
   const summary = port.getSummary('brief');
+  const scenarios = port.listScenarios();
+  const run = lastRun();
+  const proposals = [...controls.listProposals()];
+  const drafts = proposals.filter((p) => p.status === 'draft');
 
   return (
     <div className="page">
@@ -41,18 +50,18 @@ export default function App() {
 
       {!supported && (
         <div className="banner">
-          <strong>Agent collaboration is unavailable in this browser.</strong> Everything on this
-          page still works manually &mdash; you can select a flow and run every scenario yourself.
-          To let an agent join, open this URL in the ChatGPT desktop app&rsquo;s browser, or in
-          Chrome 149+ with <code>chrome://flags/#enable-webmcp-testing</code> enabled.
+          <strong>Agent collaboration is unavailable in this browser.</strong> Everything below
+          still works &mdash; select a flow and run any scenario yourself. To let an agent join,
+          open this URL in the ChatGPT desktop app&rsquo;s browser, or in Chrome 149+ with{' '}
+          <code>chrome://flags/#enable-webmcp-testing</code> enabled.
         </div>
       )}
 
       <section>
-        <h2>Canvas</h2>
+        <h2>Focus</h2>
         <p className="hint">
-          The architecture canvas lands here. Until it does, these controls stand in for
-          selecting a flow so the scoped tools have something to scope to.
+          The architecture canvas lands here. Until it does, these controls stand in for selecting
+          a flow. Whatever is selected is exactly what the agent can see &mdash; nothing more.
         </p>
         <div className="buttons">
           <button onClick={() => controls.setSelection(DEMO_SCOPE)}>
@@ -60,6 +69,9 @@ export default function App() {
           </button>
           <button className="ghost" onClick={() => controls.clearSelection()}>
             Clear selection
+          </button>
+          <button className="ghost" onClick={() => controls.resetToSeed()}>
+            Reset to seed
           </button>
         </div>
       </section>
@@ -91,10 +103,100 @@ export default function App() {
           </>
         ) : (
           <p className="hint">
-            Nothing is selected, so the agent can only see the two global read-only tools. Scoped
+            Nothing is selected, so the agent can only see the three global read-only tools. Scoped
             tools appear the moment a flow is selected and disappear when it is cleared.
           </p>
         )}
+      </section>
+
+      <section>
+        <h2>Simulate</h2>
+        <p className="hint">
+          Run these yourself, or ask an agent to. Either way the result appears here, so an agent&rsquo;s
+          work is visible on the page rather than only in its chat window.
+        </p>
+        <div className="buttons">
+          {scenarios.map((s) => (
+            <button
+              key={s.id}
+              className={run?.scenarioId === s.id ? '' : 'ghost'}
+              onClick={() => port.simulate({ scenarioId: s.id })}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+
+        {run ? (
+          <>
+            <div className="row">
+              <span className="row-label">Status</span>
+              <span className={`row-value ${run.status === 'healthy' ? 'ok' : run.status === 'failing' ? 'bad' : ''}`}>
+                {run.status.toUpperCase()} &middot; {run.summary.completedRps} of {run.summary.inputRps} rps
+                complete &middot; {Math.round(run.summary.errorRate * 100)}% errors &middot; p95{' '}
+                {run.summary.p95LatencyMs}ms
+              </span>
+            </div>
+            <ol className="causal">
+              {run.causalEvents.map((e) => (
+                <li key={e.step}>{e.text}</li>
+              ))}
+            </ol>
+            {run.bottlenecks.length > 0 && (
+              <p className="hint">
+                <strong>First bottleneck:</strong> {run.bottlenecks[0].name} at{' '}
+                {Math.round(run.bottlenecks[0].utilization * 100)}% &mdash; {run.bottlenecks[0].why}
+              </p>
+            )}
+            <p className="hint">
+              <strong>Assumptions:</strong> {run.assumptions.join(' ')}
+            </p>
+          </>
+        ) : (
+          <p className="hint">No run yet.</p>
+        )}
+      </section>
+
+      <section>
+        <h2>
+          Proposals <span className="count">{drafts.length}</span>
+        </h2>
+        <p className="hint">
+          An agent can draft a change but never apply one. Applying is a button only you can press,
+          and it is the only thing in the system that increments the revision.
+        </p>
+        {proposals.length === 0 && (
+          <p className="hint">Nothing proposed yet. Ask your agent for the smallest safe mitigation.</p>
+        )}
+        {proposals.map((p) => (
+          <div key={p.id} className="proposal">
+            <div>
+              <code>{p.id}</code> &middot; base revision {p.baseRevision} &middot;{' '}
+              <span className={`status ${p.status}`}>{p.status}</span>
+              <div className="proposal-title">{p.title}</div>
+              <div className="hint">{p.rationale}</div>
+              <ul className="changes">
+                {p.changes.map((c, i) => (
+                  <li key={i}>
+                    <code>{c.op}</code>
+                    {c.targetId ? ` ${c.targetId}` : ''} &mdash; {JSON.stringify(c.payload)}
+                  </li>
+                ))}
+              </ul>
+              {p.expectedTradeoffs.length > 0 && (
+                <div className="hint">Trade-offs: {p.expectedTradeoffs.join('; ')}</div>
+              )}
+            </div>
+            {p.status === 'draft' && (
+              <div className="buttons">
+                <button onClick={() => controls.applyProposal(p.id)}>Apply</button>
+                <button className="ghost" onClick={() => controls.rejectProposal(p.id)}>
+                  Reject
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
       </section>
 
       <section>

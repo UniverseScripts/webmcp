@@ -370,3 +370,34 @@ a {
     text-align: left;
   }
 }
+
+/* causal chain + patch changes */
+
+.causal {
+  margin: 12px 0;
+  padding-left: 20px;
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+.causal li {
+  margin-bottom: 4px;
+}
+
+.causal li::marker {
+  color: var(--dim);
+  font-family: var(--mono);
+}
+
+.changes {
+  margin: 8px 0 4px;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+
+.changes code {
+  color: var(--accent);
+  background: none;
+  padding: 0;
+}
