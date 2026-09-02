@@ -7,8 +7,8 @@ failure simulation, and drafts a patch — which only you can apply.
 It is not an AI diagram generator. The agent never scrapes the canvas; it calls structured tools
 the page registers, and it cannot change anything without human approval.
 
-**Live URL:** _pending first deploy_
-**Tool registry and manual invocation:** `/debug`
+**Live URL:** https://architecturelab.vercel.app
+**Tool registry and manual invocation:** https://architecturelab.vercel.app/debug
 
 ---
 
