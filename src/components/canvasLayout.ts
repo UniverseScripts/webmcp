@@ -6,15 +6,15 @@
  * layout used a 24px gap, which is why protocol text sat inside the next box.
  */
 
-export const NODE_W = 176;
-export const NODE_H = 76;
-export const CANVAS_W = 1680;
+export const NODE_W = 184;
+export const NODE_H = 82;
+export const CANVAS_W = 1720;
 export const CANVAS_H = 540;
 
-const COL = 284; // 176 node + 108px gap so protocol pills sit in the open space
-const SYNC_Y = 56;
-const BRANCH_Y = 210;
-const ASYNC_Y = 372;
+const COL = 290; // 184 node + 106px gap so protocol pills sit neatly on wires
+const SYNC_Y = 64;
+const BRANCH_Y = 224;
+const ASYNC_Y = 388;
 
 const LAYOUT: Record<string, { x: number; y: number }> = {
   browser: { x: 28, y: SYNC_Y },

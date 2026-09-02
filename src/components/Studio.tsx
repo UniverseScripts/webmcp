@@ -76,31 +76,32 @@ export function Studio({ activity }: { activity: ToolActivity[] }) {
         </div>
 
         <div className="studio-header-right">
-          <span className={`webmcp-status-pill ${supported ? 'is-connected' : 'is-disconnected'}`}>
+          <span
+            className={`webmcp-status-pill ${supported ? 'is-connected' : 'is-disconnected'}`}
+            title={supported ? 'WebMCP connected and ready' : 'WebMCP is not ready'}
+            aria-label={supported ? 'WebMCP connected and ready' : 'WebMCP is not ready'}
+          >
             {supported ? (
-              <>
-                <svg
-                  className="status-icon"
-                  width="13"
-                  height="13"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M13.3334 4L6.00008 11.3333L2.66675 8"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <span>WebMCP ready</span>
-              </>
+              <svg
+                className="status-icon"
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M13.3334 4L6.00008 11.3333L2.66675 8"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             ) : (
               <>
                 <span className="status-dot off" />
-                <span>WebMCP unavailable</span>
+                <span>WebMCP is not ready</span>
               </>
             )}
           </span>
@@ -153,16 +154,18 @@ export function Studio({ activity }: { activity: ToolActivity[] }) {
                 </div>
                 <div className="popover-row">
                   <span className="popover-label">Graph Revision</span>
-                  <span className="popover-val font-mono">revision {summary.revision}</span>
+                  <span className="popover-val">revision {summary.revision}</span>
                 </div>
                 <div className="popover-row">
                   <span className="popover-label">Data Source</span>
                   <span className="popover-val">
-                    {IS_FIXTURE ? (
-                      <span className="fixture-badge">Fixture model</span>
-                    ) : (
-                      'Live domain'
-                    )}
+                    {IS_FIXTURE ? 'Fixture model' : 'Live domain'}
+                  </span>
+                </div>
+                <div className="popover-row">
+                  <span className="popover-label">MCP Status</span>
+                  <span className="popover-val" style={{ color: supported ? 'var(--ok)' : 'var(--warn)' }}>
+                    {supported ? 'Connected' : 'Not Connected'}
                   </span>
                 </div>
                 <p className="popover-note">
@@ -185,53 +188,94 @@ export function Studio({ activity }: { activity: ToolActivity[] }) {
       <div className="studio-body">
         <div className="canvas-pane">
           <div className="canvas-toolbar">
-            <div className="mode-toggle" role="radiogroup" aria-label="Canvas click mode">
+            <div className="toolbar-left">
+              <div className="mode-toggle" role="radiogroup" aria-label="Canvas click mode">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={clickMode === 'inspect'}
+                  className={clickMode === 'inspect' ? 'primary' : 'ghost'}
+                  onClick={() => setClickMode('inspect')}
+                  title="Inspect Component (Click node to view metrics & config)"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                  <span>Inspect</span>
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={clickMode === 'scope'}
+                  className={clickMode === 'scope' ? 'primary' : 'ghost'}
+                  onClick={() => setClickMode('scope')}
+                  title="Add to Agent Scope (Click node to toggle agent visibility)"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  <span>Add to scope</span>
+                </button>
+              </div>
               <button
                 type="button"
-                role="radio"
-                aria-checked={clickMode === 'inspect'}
-                className={clickMode === 'inspect' ? 'primary' : 'ghost'}
-                onClick={() => setClickMode('inspect')}
+                className={sameIds(selectedList, DEMO_SCOPE) ? 'ghost is-active' : 'ghost'}
+                onClick={() => controls.setSelection(DEMO_SCOPE)}
+                aria-label="Select Checkout → Redis → Product DB"
+                title="Select Checkout → Redis → Product DB flow"
               >
-                Inspect
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                </svg>
+                <span>Checkout Flow</span>
               </button>
               <button
                 type="button"
-                role="radio"
-                aria-checked={clickMode === 'scope'}
-                className={clickMode === 'scope' ? 'primary' : 'ghost'}
-                onClick={() => setClickMode('scope')}
+                className={sameIds(selectedList, PLACE_ORDER) ? 'ghost is-active' : 'ghost'}
+                onClick={() => controls.setSelection(PLACE_ORDER)}
+                aria-label="Place Order (sync path)"
+                title="Select Place Order sync path"
               >
-                Add to scope
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                  <line x1="12" y1="22.08" x2="12" y2="12" />
+                </svg>
+                <span>Place Order Flow</span>
               </button>
             </div>
-            <button
-              type="button"
-              className={sameIds(selectedList, DEMO_SCOPE) ? 'ghost is-active' : 'ghost'}
-              onClick={() => controls.setSelection(DEMO_SCOPE)}
-            >
-              Select Checkout → Redis → Product DB
-            </button>
-            <button
-              type="button"
-              className={sameIds(selectedList, PLACE_ORDER) ? 'ghost is-active' : 'ghost'}
-              onClick={() => controls.setSelection(PLACE_ORDER)}
-            >
-              Place Order (sync path)
-            </button>
-            <button type="button" className="ghost" onClick={() => controls.clearSelection()}>
-              Clear selection
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => {
-                controls.resetToSeed();
-                setInspectId(null);
-              }}
-            >
-              Reset to seed
-            </button>
+
+            <div className="toolbar-right">
+              <button
+                type="button"
+                className="ghost icon-only-btn"
+                onClick={() => controls.clearSelection()}
+                aria-label="Clear selection"
+                title="Clear selection"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="ghost icon-only-btn"
+                onClick={() => {
+                  controls.resetToSeed();
+                  setInspectId(null);
+                }}
+                aria-label="Reset to seed"
+                title="Reset to seed"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+              </button>
+            </div>
           </div>
           <p className="canvas-hint">
             {clickMode === 'inspect'

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ComponentMetric, Protocol } from '../contracts';
 import type { FixtureComponent, FixtureConnection } from '../contracts/fixture/graph';
 import { CANVAS_H, CANVAS_W, NODE_H, NODE_W, nodeCenter, nodePort, nodePosition } from './canvasLayout';
@@ -49,10 +50,7 @@ function protoLabel(protocol: Protocol): string {
 function labelPoint(a: { x: number; y: number }, b: { x: number; y: number }): { x: number; y: number } {
   const mx = (a.x + b.x) / 2;
   const my = (a.y + b.y) / 2;
-  const horizontal = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
-  // Sit above the cards, never in the 108px gutter where a pill still collides with ports.
-  if (horizontal) return { x: mx, y: Math.min(a.y, b.y) - NODE_H / 2 - 10 };
-  return { x: mx + 24, y: my };
+  return { x: mx, y: my };
 }
 
 export function ArchitectureCanvas({
@@ -66,6 +64,7 @@ export function ArchitectureCanvas({
   onInspect,
   onToggleSelect,
 }: ArchitectureCanvasProps) {
+  const [zoom, setZoom] = useState(1);
   const indexOf = (id: string): number => components.findIndex((c) => c.id === id);
   const hasSelection = selectedIds.size > 0;
 
@@ -95,110 +94,174 @@ export function ArchitectureCanvas({
   });
 
   return (
-    <svg
-      className="arch-svg"
-      viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-      role="group"
-      aria-label="FlashCart architecture: browser through checkout, then product and order databases, with an async invoice path"
-    >
-      <defs>
-        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow" />
-        </marker>
-      </defs>
+    <div className="canvas-wrapper">
+      <svg
+        className="arch-svg"
+        viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
+        style={{
+          transform: `scale(${zoom})`,
+          transformOrigin: 'top left',
+          transition: 'transform 0.12s ease-out',
+        }}
+        role="group"
+        aria-label="FlashCart architecture: browser through checkout, then product and order databases, with an async invoice path"
+      >
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow" />
+          </marker>
+        </defs>
 
-      <text className="lane-label" x="28" y="32">
-        Sync path — place order
-      </text>
-      <text className="lane-label" x="28" y="348">
-        Async path — after acknowledgement
-      </text>
-
-      {edges.map(({ conn, d, lit }) => (
-        <g key={conn.id} className={lit ? '' : 'edge-dim'}>
-          <path
-            d={d}
-            className={conn.mode === 'async' ? 'edge-async' : 'edge-sync'}
-            fill="none"
-            markerEnd="url(#arrow)"
-          />
-          {animatePackets && lit && (
-            <circle r="4" className="packet">
-              <animateMotion dur="2.4s" repeatCount="indefinite" path={d} />
-            </circle>
-          )}
+        {/* Sync Lane Header */}
+        <g className="lane-header sync-lane">
+          <rect x="28" y="18" width="5" height="16" fill="var(--primary)" />
+          <text className="lane-title" x="42" y="31">
+            SYNC PATH — PLACE ORDER
+          </text>
+          <line x1="28" y1="42" x2={CANVAS_W - 28} y2="42" className="lane-divider" />
         </g>
-      ))}
 
-      {components.map((c, i) => {
-        const p = nodePosition(c.id, i);
-        const selected = selectedIds.has(c.id);
-        const dim = hasSelection && !selected;
-        const m = metrics?.find((x) => x.componentId === c.id);
-        const cap = m
-          ? `${Math.round(m.utilization * 100)}% used`
-          : formatRps(c.capacityRps);
-        const color = kindColor(c.kind);
-        const bar = m ? Math.min(1, m.utilization) : 0;
-        return (
-          <g
-            key={c.id}
-            className={`arch-node ${heatClass(c, metrics)} ${selected ? 'is-selected' : ''} ${inspectId === c.id ? 'is-inspect' : ''} ${dim ? 'is-dim' : ''}`}
-            transform={`translate(${p.x} ${p.y})`}
-            tabIndex={0}
-            role="button"
-            aria-pressed={selected}
-            aria-label={`${c.name}, ${c.kind}. Click to ${clickMode === 'scope' ? 'add to agent scope' : 'inspect'}.`}
-            onClick={(e) => activate(c.id, e.shiftKey)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                activate(c.id, e.shiftKey);
-              }
-            }}
-          >
-            <title>
-              {c.name}: click to {clickMode === 'scope' ? 'add to the agent’s scope' : 'inspect'}. Shift-click always
-              toggles scope.
-            </title>
-            <rect className="node-card" width={NODE_W} height={NODE_H} rx="12" />
-            <rect className="node-icon" x="10" y="14" width="36" height="36" rx="9" fill={color} />
-            <svg x="19" y="23" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-              <NodeGlyphPaths kind={c.kind} />
-            </svg>
-            <text className="node-name" x="54" y="30">
-              {c.name}
-            </text>
-            <text className="node-cap" x="54" y="48">
-              {cap}
-            </text>
-            {m ? (
+        {/* Async Lane Header */}
+        <g className="lane-header async-lane">
+          <rect x="28" y="342" width="5" height="16" fill="var(--secondary)" />
+          <text className="lane-title" x="42" y="355">
+            ASYNC PATH — POST-ORDER PROCESSING
+          </text>
+          <line x1="28" y1="366" x2={CANVAS_W - 28} y2="366" className="lane-divider" />
+        </g>
+
+        {edges.map(({ conn, d, lit }) => (
+          <g key={conn.id} className={lit ? '' : 'edge-dim'}>
+            <path
+              d={d}
+              className={conn.mode === 'async' ? 'edge-async' : 'edge-sync'}
+              fill="none"
+              markerEnd="url(#arrow)"
+            />
+            {animatePackets && lit && (
+              <circle r="4" className="packet">
+                <animateMotion dur="2.4s" repeatCount="indefinite" path={d} />
+              </circle>
+            )}
+          </g>
+        ))}
+
+        {components.map((c, i) => {
+          const p = nodePosition(c.id, i);
+          const selected = selectedIds.has(c.id);
+          const dim = hasSelection && !selected;
+          const m = metrics?.find((x) => x.componentId === c.id);
+          const cap = m
+            ? `${Math.round(m.utilization * 100)}% used`
+            : formatRps(c.capacityRps);
+          const color = kindColor(c.kind);
+          const bar = m ? Math.min(1, m.utilization) : 0;
+          return (
+            <g
+              key={c.id}
+              className={`arch-node ${heatClass(c, metrics)} ${selected ? 'is-selected' : ''} ${inspectId === c.id ? 'is-inspect' : ''} ${dim ? 'is-dim' : ''}`}
+              transform={`translate(${p.x} ${p.y})`}
+              tabIndex={0}
+              role="button"
+              aria-pressed={selected}
+              aria-label={`${c.name}, ${c.kind}. Click to ${clickMode === 'scope' ? 'add to agent scope' : 'inspect'}.`}
+              onClick={(e) => activate(c.id, e.shiftKey)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  activate(c.id, e.shiftKey);
+                }
+              }}
+            >
+              <title>
+                {c.name}: click to {clickMode === 'scope' ? 'add to the agent’s scope' : 'inspect'}. Shift-click always
+                toggles scope.
+              </title>
+              <rect className="node-card" width={NODE_W} height={NODE_H} rx="0" />
+              <rect className="node-icon" x="12" y="14" width="46" height="46" rx="0" fill={color} />
+              <svg x="23" y="25" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+                <NodeGlyphPaths kind={c.kind} />
+              </svg>
+              <text className="node-name" x="68" y="36">
+                {c.name}
+              </text>
+              <text className="node-cap" x="68" y="56">
+                {cap}
+              </text>
+              {m ? (
+                <rect
+                  className="node-util"
+                  x="12"
+                  y={NODE_H - 7}
+                  width={Math.max(4, (NODE_W - 24) * bar)}
+                  height="3.5"
+                  rx="0"
+                />
+              ) : null}
+              <circle className="port" cx="0" cy={NODE_H / 2} r="4" />
+              <circle className="port" cx={NODE_W} cy={NODE_H / 2} r="4" />
+            </g>
+          );
+        })}
+
+        {edges.map(({ conn, lab, lp, lit }) => {
+          const pillW = Math.max(44, lab.length * 7.5 + 18);
+          return (
+            <g key={`${conn.id}-label`} className={lit ? '' : 'edge-dim'}>
               <rect
-                className="node-util"
-                x="10"
-                y={NODE_H - 8}
-                width={Math.max(4, (NODE_W - 20) * bar)}
-                height="3"
-                rx="1.5"
+                className="edge-pill"
+                x={lp.x - pillW / 2}
+                y={lp.y - 10}
+                width={pillW}
+                height={20}
+                rx="0"
               />
-            ) : null}
-            <circle className="port" cx="0" cy={NODE_H / 2} r="4" />
-            <circle className="port" cx={NODE_W} cy={NODE_H / 2} r="4" />
-          </g>
-        );
-      })}
+              <text className="edge-label" x={lp.x} y={lp.y + 4} textAnchor="middle">
+                {lab}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
 
-      {edges.map(({ conn, lab, lp, lit }) => {
-        const pillW = Math.max(40, lab.length * 6.8 + 16);
-        return (
-          <g key={`${conn.id}-label`} className={lit ? '' : 'edge-dim'}>
-            <rect className="edge-pill" x={lp.x - pillW / 2} y={lp.y - 11} width={pillW} height={16} rx="8" />
-            <text className="edge-label" x={lp.x} y={lp.y + 1} textAnchor="middle">
-              {lab}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+      <div className="canvas-zoom-controls" role="toolbar" aria-label="Canvas Zoom Controls">
+        <button
+          type="button"
+          className="zoom-btn"
+          onClick={() => setZoom((z) => Math.min(1.5, Number((z + 0.1).toFixed(1))))}
+          title="Zoom In"
+          aria-label="Zoom In"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            <line x1="11" y1="8" x2="11" y2="14" />
+            <line x1="8" y1="11" x2="14" y2="11" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="zoom-btn zoom-level"
+          onClick={() => setZoom(1)}
+          title="Reset Zoom to 100%"
+          aria-label="Reset Zoom"
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+        <button
+          type="button"
+          className="zoom-btn"
+          onClick={() => setZoom((z) => Math.max(0.6, Number((z - 0.1).toFixed(1))))}
+          title="Zoom Out"
+          aria-label="Zoom Out"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            <line x1="8" y1="11" x2="14" y2="11" />
+          </svg>
+        </button>
+      </div>
+    </div>
   );
 }
