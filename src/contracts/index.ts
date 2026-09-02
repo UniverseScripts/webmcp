@@ -13,13 +13,19 @@
  * rather than a promise.
  */
 
-import { fixtureControls, fixturePort, lastRun as fixtureLastRun } from './fixture';
+import {
+  fixtureControls,
+  fixturePort,
+  lastRun as fixtureLastRun,
+  liveGraph as fixtureLiveGraph,
+} from './fixture';
 
 export * from './port';
 
 export const port = fixturePort;
 export const controls = fixtureControls;
 export const lastRun = fixtureLastRun;
+export const liveGraph = fixtureLiveGraph;
 
 /**
  * True while the app is running on hard-coded fixture data. Surfaced in the UI

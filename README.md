@@ -151,8 +151,9 @@ WebMCP is disabled outright in a document that is not origin-isolated, so `verce
   ordinal, not proportional.
 - **The graph and simulator are currently fixture-backed** (`src/contracts/fixture/`) behind the
   `ArchLabPort` interface, pending the domain layer. The page says so, and so does `/debug`.
-- **There is no canvas yet.** Selection is driven by buttons rather than by clicking a diagram; the
-  architecture canvas belongs to a separate workstream. Everything the agent sees is real.
+- **The canvas is a projection of the fixture graph**, not a drawing editor. Click a node to
+  inspect it; use the flow chips (or shift-click) to set the agent’s scope. Everything the agent
+  sees still comes from WebMCP tools, not from pixels.
 - **WebMCP is experimental.** It is an origin trial through Chrome 156 and ships unflagged in 157.
   The API moved from `navigator.modelContext` to `document.modelContext` during 2026, and the older
   name still works with only a deprecation warning — so stale copy-pasted code appears to succeed.
