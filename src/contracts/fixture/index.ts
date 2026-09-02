@@ -112,6 +112,135 @@ const UPDATABLE = new Set([
   'health',
 ]);
 
+const PATCH_OPS = new Set<PatchChange['op']>([
+  'add_component',
+  'update_component',
+  'add_connection',
+  'remove_connection',
+]);
+
+const PROTOCOLS = new Set(['https', 'grpc', 'sql', 'cache', 'queue', 'event']);
+const MODES = new Set(['sync', 'async']);
+const HEALTH_STATES = new Set(['healthy', 'degraded', 'down']);
+
+type PatchValidation = {
+  reason: 'invalid_patch' | 'unknown_target' | 'unsupported_op';
+  message: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function finiteNonNegative(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * Validates the runtime shape and graph targets before a draft is stored.
+ * JSON Schema helps the agent form a valid call, but the page must still defend
+ * itself when a browser or another caller invokes a tool without validation.
+ */
+function validatePatchChanges(changes: unknown): PatchValidation | null {
+  if (!Array.isArray(changes) || changes.length === 0 || changes.length > 8) {
+    return { reason: 'invalid_patch', message: 'A proposal must contain between one and eight changes.' };
+  }
+
+  const componentIds = new Set(state.components.map((c) => c.id));
+  const connectionIds = new Set(state.connections.map((c) => c.id));
+  let componentCount = state.components.length;
+  let connectionCount = state.connections.length;
+
+  for (const [index, raw] of changes.entries()) {
+    if (!isRecord(raw) || typeof raw.op !== 'string' || !PATCH_OPS.has(raw.op as PatchChange['op'])) {
+      return { reason: 'unsupported_op', message: `Change ${index + 1} has an unsupported operation.` };
+    }
+
+    const op = raw.op as PatchChange['op'];
+    const targetId = typeof raw.targetId === 'string' ? raw.targetId : '';
+    const payload = raw.payload;
+
+    if (!isRecord(payload)) {
+      return { reason: 'invalid_patch', message: `Change ${index + 1} must include an object payload.` };
+    }
+
+    if (op === 'update_component') {
+      if (!componentIds.has(targetId)) {
+        return { reason: 'unknown_target', message: `Unknown component target "${targetId || '(missing)'}".` };
+      }
+      const fields = Object.keys(payload);
+      if (fields.length === 0 || fields.some((field) => !UPDATABLE.has(field))) {
+        return {
+          reason: 'invalid_patch',
+          message: `Component updates may only change: ${[...UPDATABLE].join(', ')}.`,
+        };
+      }
+      for (const [field, value] of Object.entries(payload)) {
+        if (['capacityRps', 'serviceTimeMs', 'consumerRps'].includes(field) && !finiteNonNegative(value)) {
+          return { reason: 'invalid_patch', message: `${field} must be a finite non-negative number.` };
+        }
+        if (field === 'cacheHitRatio' && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1)) {
+          return { reason: 'invalid_patch', message: 'cacheHitRatio must be a number between 0 and 1.' };
+        }
+        if (field === 'name' || field === 'limits') {
+          if (typeof value !== 'string' || value.trim().length === 0) {
+            return { reason: 'invalid_patch', message: `${field} must be a non-empty string.` };
+          }
+        }
+        if (field === 'health' && (typeof value !== 'string' || !HEALTH_STATES.has(value))) {
+          return { reason: 'invalid_patch', message: 'health must be healthy, degraded, or down.' };
+        }
+      }
+      continue;
+    }
+
+    if (op === 'remove_connection') {
+      if (!connectionIds.has(targetId)) {
+        return { reason: 'unknown_target', message: `Unknown connection target "${targetId || '(missing)'}".` };
+      }
+      connectionIds.delete(targetId);
+      connectionCount -= 1;
+      continue;
+    }
+
+    if (op === 'add_component') {
+      const id = typeof payload.id === 'string' && payload.id.trim() ? payload.id : `new_${componentCount + 1}`;
+      const kind = typeof payload.kind === 'string' ? payload.kind : '';
+      if (!CATALOG_KINDS.has(kind)) {
+        return {
+          reason: 'unsupported_op',
+          message: `Unknown component kind "${kind || '(missing)'}". The simulator only models: ${[...CATALOG_KINDS].join(', ')}.`,
+        };
+      }
+      if (componentIds.has(id)) {
+        return { reason: 'invalid_patch', message: `Component id "${id}" already exists.` };
+      }
+      componentIds.add(id);
+      componentCount += 1;
+      continue;
+    }
+
+    const from = typeof payload.from === 'string' ? payload.from : '';
+    const to = typeof payload.to === 'string' ? payload.to : '';
+    const protocol = typeof payload.protocol === 'string' ? payload.protocol : 'https';
+    const mode = typeof payload.mode === 'string' ? payload.mode : 'sync';
+    if (!componentIds.has(from) || !componentIds.has(to)) {
+      return { reason: 'unknown_target', message: `Connection endpoints must reference known components (from "${from}", to "${to}").` };
+    }
+    if (!PROTOCOLS.has(protocol) || !MODES.has(mode)) {
+      return { reason: 'invalid_patch', message: 'Connection protocol or mode is unsupported.' };
+    }
+    const generatedId = `c_new_${connectionCount + 1}`;
+    if (connectionIds.has(generatedId)) {
+      return { reason: 'invalid_patch', message: `Connection id "${generatedId}" already exists.` };
+    }
+    connectionIds.add(generatedId);
+    connectionCount += 1;
+  }
+
+  return null;
+}
+
 /**
  * Applies a patch to a COPY of the graph and returns it. Used both to preview a
  * proposal (before/after, nothing committed) and to commit one on human
@@ -386,6 +515,8 @@ const CATALOG: CatalogEntry[] = [
   { kind: 'external', does: 'Third-party dependency, not modifiable', fields: ['serviceTimeMs'] },
 ];
 
+const CATALOG_KINDS = new Set(CATALOG.map((entry) => entry.kind));
+
 /* --------------------------------------------------------------------- port */
 
 export const fixturePort: ArchLabPort = {
@@ -431,14 +562,20 @@ export const fixturePort: ArchLabPort = {
       return [];
     });
 
-    const onSyncPath = selected.filter((c) => (SYNC_PATH as readonly string[]).includes(c.id));
+    const selectedPathIndexes = selected
+      .map((c) => (SYNC_PATH as readonly string[]).indexOf(c.id))
+      .filter((index) => index >= 0)
+      .sort((a, b) => a - b);
+    const hasValidFlow =
+      selectedPathIndexes.length >= 2 &&
+      selectedPathIndexes.every((index, position) => position === 0 || index === selectedPathIndexes[position - 1] + 1);
 
     return {
       selectionKey: `${state.revision}:${[...state.selection].sort().join(',')}`,
       revision: state.revision,
       profile: ARCHITECTURE.profile,
-      flowId: onSyncPath.length >= 2 ? FLOWS[0].id : null,
-      hasValidFlow: onSyncPath.length >= 2,
+      flowId: hasValidFlow ? FLOWS[0].id : null,
+      hasValidFlow,
       components: selected.map((c) => toSummary(c, 'standard')),
       connections: internal.map<ConnectionSummary>((c) => ({
         id: c.id,
@@ -490,9 +627,15 @@ export const fixturePort: ArchLabPort = {
       };
     }
 
-    if (!Array.isArray(patch.changes) || patch.changes.length === 0) {
-      return { ok: false, reason: 'invalid_patch', message: 'A proposal must contain at least one change.' };
+    if (typeof patch.title !== 'string' || patch.title.trim().length === 0 || patch.title.length > 90) {
+      return { ok: false, reason: 'invalid_patch', message: 'A proposal title is required and must be at most 90 characters.' };
     }
+    if (typeof patch.rationale !== 'string' || patch.rationale.trim().length === 0 || patch.rationale.length > 500) {
+      return { ok: false, reason: 'invalid_patch', message: 'A proposal rationale is required and must be at most 500 characters.' };
+    }
+
+    const validation = validatePatchChanges(patch.changes);
+    if (validation) return { ok: false, ...validation };
 
     if (state.proposals.filter((p) => p.status === 'draft').length >= 5) {
       return {
@@ -500,31 +643,6 @@ export const fixturePort: ArchLabPort = {
         reason: 'invalid_patch',
         message: 'Five drafts are already awaiting review. Ask the user to decide on those first.',
       };
-    }
-
-    for (const change of patch.changes) {
-      if (change.op === 'update_component' || change.op === 'remove_connection') {
-        const known =
-          state.components.some((c) => c.id === change.targetId) ||
-          state.connections.some((c) => c.id === change.targetId);
-        if (!known) {
-          return {
-            ok: false,
-            reason: 'unknown_target',
-            message: `Unknown target "${change.targetId ?? '(missing)'}" for ${change.op}.`,
-          };
-        }
-      }
-      if (change.op === 'add_component') {
-        const kind = String((change.payload as Record<string, unknown>)?.kind ?? '');
-        if (kind && !CATALOG.some((e) => e.kind === kind)) {
-          return {
-            ok: false,
-            reason: 'unsupported_op',
-            message: `Unknown component kind "${kind}". The simulator only models: ${CATALOG.map((e) => e.kind).join(', ')}.`,
-          };
-        }
-      }
     }
 
     const proposal: Proposal = {
@@ -579,6 +697,9 @@ export const fixtureControls: ArchLabControls = {
   applyProposal(id: string): boolean {
     const p = state.proposals.find((x) => x.id === id && x.status === 'draft');
     if (!p) return false;
+    // A draft can remain in the drawer while another draft is approved. Never
+    // apply a proposal against a graph revision it was not written for.
+    if (p.baseRevision !== state.revision) return false;
     const patched = withPatch(state.components, state.connections, p.changes);
     state.components = patched.components;
     state.connections = patched.connections;

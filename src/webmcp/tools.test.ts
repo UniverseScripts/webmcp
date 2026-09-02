@@ -118,10 +118,10 @@ describe('tool definitions', () => {
       'get_architecture_summary',
       'list_simulation_scenarios',
       'get_selected_arch_context',
-      'simulate_selected_flow',
     ]) {
       expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
     }
+    expect(byName.get('simulate_selected_flow')?.annotations?.readOnlyHint).not.toBe(true);
     // The selection tool returns user-authored component notes.
     expect(byName.get('get_selected_arch_context')?.annotations?.untrustedContentHint).toBe(true);
   });
@@ -337,6 +337,59 @@ describe('stale revision rejection', () => {
     const stale = propose.execute(patch, ctx) as string;
     expect(stale).toMatch(/REJECTED: stale revision/);
     expect(stale).toMatch(new RegExp(`current is ${revision + 1}`));
+  });
+
+  it('does not apply a draft that became stale while waiting for review', () => {
+    controls.setSelection(['checkout', 'redis', 'product_db']);
+    const revision = port.getRevision();
+    const first = port.draftProposal({
+      baseRevision: revision,
+      title: 'Raise Product DB capacity',
+      rationale: 'Reduce the first bottleneck.',
+      changes: [{ op: 'update_component', targetId: 'product_db', payload: { capacityRps: 500 } }],
+    });
+    const second = port.draftProposal({
+      baseRevision: revision,
+      title: 'Raise Checkout capacity',
+      rationale: 'Reduce retry pressure.',
+      changes: [{ op: 'update_component', targetId: 'checkout', payload: { capacityRps: 1200 } }],
+    });
+
+    expect(first.ok && second.ok).toBe(true);
+    expect(controls.applyProposal(first.ok ? first.proposalId : '')).toBe(true);
+    expect(controls.applyProposal(second.ok ? second.proposalId : '')).toBe(false);
+    expect(port.getRevision()).toBe(revision + 1);
+  });
+});
+
+describe('patch validation', () => {
+  it('rejects cross-type targets and invalid connection endpoints', () => {
+    const updateConnection = port.draftProposal({
+      baseRevision: port.getRevision(),
+      title: 'Invalid target',
+      rationale: 'This should not be stored.',
+      changes: [{ op: 'update_component', targetId: 'c1', payload: { capacityRps: 100 } }],
+    });
+    const badConnection = port.draftProposal({
+      baseRevision: port.getRevision(),
+      title: 'Invalid connection',
+      rationale: 'This should not be stored.',
+      changes: [{ op: 'add_connection', payload: { from: 'missing', to: 'product_db' } }],
+    });
+
+    expect(updateConnection).toMatchObject({ ok: false, reason: 'unknown_target' });
+    expect(badConnection).toMatchObject({ ok: false, reason: 'unknown_target' });
+    expect(controls.listProposals()).toHaveLength(0);
+  });
+});
+
+describe('flow selection boundaries', () => {
+  it('only exposes a flow for a contiguous synchronous path', () => {
+    controls.setSelection(['browser', 'checkout']);
+    expect(port.getSelection()).toMatchObject({ flowId: null, hasValidFlow: false });
+
+    controls.setSelection(['checkout', 'redis', 'product_db']);
+    expect(port.getSelection()).toMatchObject({ flowId: 'place_order', hasValidFlow: true });
   });
 });
 

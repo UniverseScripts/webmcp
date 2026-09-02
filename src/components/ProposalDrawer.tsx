@@ -38,6 +38,8 @@ function ProposalCard({
   preview: SimulationResult | null;
   baseline: SimulationResult | null;
 }) {
+  const stale = p.status === 'draft' && p.baseRevision !== port.getRevision();
+
   return (
     <div className="proposal">
       <div>
@@ -57,6 +59,11 @@ function ProposalCard({
         {p.expectedTradeoffs.length > 0 && (
           <div className="hint">Trade-offs: {p.expectedTradeoffs.join('; ')}</div>
         )}
+        {stale && (
+          <p className="hint">
+            Stale draft — the graph is now at revision {port.getRevision()}. Re-run the analysis before applying it.
+          </p>
+        )}
         {p.status === 'draft' && preview && baseline && (
           <p className="hint">
             If applied on this scenario: errors {Math.round(baseline.summary.errorRate * 100)}% →{' '}
@@ -67,7 +74,13 @@ function ProposalCard({
       </div>
       {p.status === 'draft' && (
         <div className="buttons">
-          <button type="button" className="primary" onClick={() => controls.applyProposal(p.id)}>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => controls.applyProposal(p.id)}
+            disabled={stale}
+            title={stale ? 'This draft targets an older graph revision.' : undefined}
+          >
             Apply
           </button>
           <button type="button" className="ghost" onClick={() => controls.rejectProposal(p.id)}>
