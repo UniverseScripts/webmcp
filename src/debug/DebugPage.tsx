@@ -245,7 +245,13 @@ export default function DebugPage() {
             </div>
             {p.status === 'draft' && (
               <div className="buttons">
-                <button onClick={() => controls.applyProposal(p.id)}>Apply</button>
+                <button
+                  onClick={() => controls.applyProposal(p.id)}
+                  disabled={p.baseRevision !== port.getRevision()}
+                  title={p.baseRevision !== port.getRevision() ? 'This draft targets an older graph revision.' : undefined}
+                >
+                  Apply
+                </button>
                 <button className="ghost" onClick={() => controls.rejectProposal(p.id)}>
                   Reject
                 </button>

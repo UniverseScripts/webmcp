@@ -21,6 +21,9 @@ You need a browser that speaks WebMCP. Either:
 - **Google Chrome 149 or newer** — go to `chrome://flags/#enable-webmcp-testing`, set it to
   **Enabled**, relaunch Chrome, then open the live URL.
 
+For ChatGPT site tools, use GPT-5.6 Sol or GPT-5.6 Terra in the latest desktop app. GPT-5.6 Luna
+currently has WebMCP disabled, and site tools are not available in Enterprise or Edu workspaces.
+
 Click **Select Checkout → Redis → Product DB**, then paste this to your agent:
 
 > Inspect the selected architecture context. Run the cache-outage scenario, identify the first
@@ -54,7 +57,7 @@ revoked the moment the selection changes — so the agent's capabilities follow 
 | `list_simulation_scenarios` | always | `readOnlyHint` |
 | `get_component_catalog` | always | `readOnlyHint` |
 | `get_selected_arch_context` | while a flow is selected | `readOnlyHint`, `untrustedContentHint` |
-| `simulate_selected_flow` | while a flow is selected | `readOnlyHint` |
+| `simulate_selected_flow` | while a flow is selected | visible run side effect |
 | `propose_architecture_patch` | while a flow is selected | `untrustedContentHint` |
 
 Two details that do more work than they look like they do:

@@ -295,7 +295,9 @@ export function scopedTools(): ToolDef[] {
         },
         required: ['scenarioId'],
       },
-      annotations: { readOnlyHint: true },
+      // This tool records the run and updates the visible page, so it is not
+      // read-only even though it does not mutate the architecture graph.
+      annotations: {},
       execute: (input) => {
         const sel = requireSelection();
         if (!sel.hasValidFlow) {
