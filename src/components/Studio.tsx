@@ -3,7 +3,7 @@ import { controls, IS_FIXTURE, lastRun, liveGraph, port } from '../contracts';
 import { isSupported } from '../webmcp/adapter';
 import type { ToolActivity } from '../webmcp/adapter';
 import { ActivityLog } from './ActivityLog';
-import { ArchitectureCanvas } from './ArchitectureCanvas';
+import { ArchitectureCanvas, type ClickMode } from './ArchitectureCanvas';
 import { Inspector } from './Inspector';
 import { ProposalDrawer } from './ProposalDrawer';
 import { AGENT_PROMPT, SharedContext } from './SharedContext';
@@ -12,8 +12,16 @@ import { SimStrip } from './SimStrip';
 const DEMO_SCOPE = ['checkout', 'redis', 'product_db'];
 const PLACE_ORDER = ['browser', 'cdn', 'gateway', 'checkout', 'redis', 'product_db', 'order_db'];
 
+function sameIds(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort().join(',');
+  const right = [...b].sort().join(',');
+  return left === right;
+}
+
 export function Studio({ activity }: { activity: ToolActivity[] }) {
   const [inspectId, setInspectId] = useState<string | null>(null);
+  const [clickMode, setClickMode] = useState<ClickMode>('inspect');
   const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
@@ -30,6 +38,7 @@ export function Studio({ activity }: { activity: ToolActivity[] }) {
   const graph = liveGraph();
   const run = lastRun();
   const selectedIds = new Set(selection?.components.map((c) => c.id) ?? []);
+  const selectedList = [...selectedIds];
   const inspect = graph.components.find((c) => c.id === inspectId) ?? null;
   const inspectMetric = run?.componentMetrics.find((m) => m.componentId === inspectId);
 
@@ -52,24 +61,12 @@ export function Studio({ activity }: { activity: ToolActivity[] }) {
         <div>
           <h1>Executable ArchitectureLab</h1>
           <p>
-            {summary.name} · profile {summary.profile} · revision <strong>{summary.revision}</strong>
+            {summary.name} · {summary.profile} · revision <strong>{summary.revision}</strong>
             {IS_FIXTURE && <span className="fixture-tag">fixture data</span>}
             <span className={supported ? 'webmcp-pill on' : 'webmcp-pill off'}>
               {supported ? 'WebMCP ready' : 'WebMCP unavailable'}
             </span>
           </p>
-        </div>
-        <div className="buttons">
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => {
-              controls.resetToSeed();
-              setInspectId(null);
-            }}
-          >
-            Reset to seed
-          </button>
         </div>
       </header>
 
@@ -84,16 +81,59 @@ export function Studio({ activity }: { activity: ToolActivity[] }) {
       <div className="studio-body">
         <div className="canvas-pane">
           <div className="canvas-toolbar">
-            <button type="button" onClick={() => controls.setSelection(DEMO_SCOPE)}>
+            <div className="mode-toggle" role="radiogroup" aria-label="Canvas click mode">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={clickMode === 'inspect'}
+                className={clickMode === 'inspect' ? 'primary' : 'ghost'}
+                onClick={() => setClickMode('inspect')}
+              >
+                Inspect
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={clickMode === 'scope'}
+                className={clickMode === 'scope' ? 'primary' : 'ghost'}
+                onClick={() => setClickMode('scope')}
+              >
+                Add to scope
+              </button>
+            </div>
+            <button
+              type="button"
+              className={sameIds(selectedList, DEMO_SCOPE) ? 'ghost is-active' : 'ghost'}
+              onClick={() => controls.setSelection(DEMO_SCOPE)}
+            >
               Select Checkout → Redis → Product DB
             </button>
-            <button type="button" className="ghost" onClick={() => controls.setSelection(PLACE_ORDER)}>
+            <button
+              type="button"
+              className={sameIds(selectedList, PLACE_ORDER) ? 'ghost is-active' : 'ghost'}
+              onClick={() => controls.setSelection(PLACE_ORDER)}
+            >
               Place Order (sync path)
             </button>
             <button type="button" className="ghost" onClick={() => controls.clearSelection()}>
               Clear selection
             </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                controls.resetToSeed();
+                setInspectId(null);
+              }}
+            >
+              Reset to seed
+            </button>
           </div>
+          <p className="canvas-hint">
+            {clickMode === 'inspect'
+              ? 'Click a node to inspect it. Use a flow chip or Add to scope to change what the agent can see. Dashed wires are async.'
+              : 'Click a node to add or remove it from the agent’s scope. Inspect stays available in the inspector panel. Dashed wires are async.'}
+          </p>
           <ArchitectureCanvas
             components={graph.components}
             connections={graph.connections}
@@ -101,6 +141,7 @@ export function Studio({ activity }: { activity: ToolActivity[] }) {
             inspectId={inspectId}
             metrics={run?.componentMetrics ?? null}
             animatePackets={Boolean(run) && !reduceMotion}
+            clickMode={clickMode}
             onInspect={setInspectId}
             onToggleSelect={toggleSelect}
           />
@@ -108,15 +149,18 @@ export function Studio({ activity }: { activity: ToolActivity[] }) {
 
         <aside className="studio-rail">
           <SharedContext selection={selection} onCopyPrompt={copyPrompt} />
-          <Inspector component={inspect} metric={inspectMetric} />
+          <Inspector
+            component={inspect}
+            metric={inspectMetric}
+            inScope={inspectId ? selectedIds.has(inspectId) : false}
+            onToggleScope={toggleSelect}
+          />
           <ProposalDrawer />
+          <ActivityLog activity={activity} />
         </aside>
       </div>
 
-      <div className="studio-bottom">
-        <SimStrip />
-        <ActivityLog activity={activity} />
-      </div>
+      <SimStrip />
 
       <p className="footer-hint">
         Tool registry and manual invocation: <a href="/debug">/debug</a>. Every number on this page is a

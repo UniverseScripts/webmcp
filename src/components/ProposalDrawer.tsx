@@ -41,7 +41,9 @@ function ProposalCard({
   return (
     <div className="proposal">
       <div>
-        <code>{p.id}</code> · base revision {p.baseRevision} · <span className={`status ${p.status}`}>{p.status}</span>
+        <span className="proposal-meta">
+          {p.id} · base revision {p.baseRevision} · <span className={`status ${p.status}`}>{p.status}</span>
+        </span>
         <div className="proposal-title">{p.title}</div>
         <div className="hint">{p.rationale}</div>
         <ul className="changes">
@@ -65,7 +67,7 @@ function ProposalCard({
       </div>
       {p.status === 'draft' && (
         <div className="buttons">
-          <button type="button" onClick={() => controls.applyProposal(p.id)}>
+          <button type="button" className="primary" onClick={() => controls.applyProposal(p.id)}>
             Apply
           </button>
           <button type="button" className="ghost" onClick={() => controls.rejectProposal(p.id)}>

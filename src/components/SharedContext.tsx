@@ -22,19 +22,20 @@ export function SharedContext({
           <div className="row">
             <span className="row-label">Boundary</span>
             <span className="row-value">
-              {selection.boundary.map((b) => `${b.name} (${b.direction})`).join(', ') || 'none'}
+              {selection.boundary.map((b) => `${b.name} (${b.direction})`).join(', ') || 'None'}
             </span>
           </div>
           <div className="row">
             <span className="row-label">Scoped tools</span>
             <span className={selection.hasValidFlow ? 'row-value ok' : 'row-value'}>
-              {selection.hasValidFlow ? 'registered' : 'not registered (need a connected flow)'}
+              {selection.hasValidFlow ? 'Registered' : 'Need a connected flow'}
             </span>
           </div>
         </>
       ) : (
         <p className="hint">
-          Nothing selected. The agent only has the three global read-only tools until you pick a flow.
+          Nothing in scope. The agent only has the three global read-only tools until you pick a flow chip or add
+          nodes to scope.
         </p>
       )}
       <button type="button" className="ghost" onClick={onCopyPrompt} disabled={!selection?.hasValidFlow}>
